@@ -31,7 +31,7 @@ Function ContainsWorkstations {
     param (
         [string]$OU
     )
-    $computers = Get-ADComputer -Filter * -SearchBase $OU -Properties OperatingSystem | Where-Object { $_.OperatingSystem -like "*Windows1*" }
+    $computers = Get-ADComputer -Filter * -SearchBase $OU -Properties OperatingSystem | Where-Object { $_.OperatingSystem -like "*Windows 1*" }
     return $computers.Count -gt 0
 }
 
