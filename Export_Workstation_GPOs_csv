@@ -1,0 +1,69 @@
+# Function to check if the AD module is loaded
+Function Check-ADModule {
+    Try {
+        $check = Get-ADDomain
+    } Catch {
+        $fault = $error[0].exception.message
+    }
+    if ($check) {
+        Write-Host -ForegroundColor Cyan "Active Directory module loaded"
+    } else {
+        Write-Host -ForegroundColor Red "We need to import Active Directory Module"
+        Import-Module ActiveDirectory
+    }
+}
+
+# Check if AD module is loaded
+Check-ADModule
+
+# Define the folder to save the reports
+$folderPath = "C:\GPOReports"
+if (-Not (Test-Path -Path $folderPath)) {
+    New-Item -ItemType Directory -Path $folderPath
+}
+
+# Get the domain root DN
+$Domain = Get-ADDomain
+$DomainDN = $Domain.DistinguishedName
+
+# Function to check if an OU contains workstations
+Function ContainsWorkstations {
+    param (
+        [string]$OU
+    )
+    $computers = Get-ADComputer -Filter * -SearchBase $OU -Properties OperatingSystem | Where-Object { $_.OperatingSystem -notlike "*Server*" }
+    return $computers.Count -gt 0
+}
+
+$results = @()
+
+# Get all OUs
+$OUs = Get-ADOrganizationalUnit -Filter 'Name -like "*"' | Select Name, DistinguishedName
+
+# Add the domain root to the list of OUs
+$OUs += New-Object PSObject -Property @{ Name = "Domain Root"; DistinguishedName = $DomainDN }
+
+# Loop through each OU and get GPO links if it contains workstations or is the domain root
+foreach ($OU in $OUs) {
+    if ($OU.Name -eq "Domain Root" -or (ContainsWorkstations -OU $OU.DistinguishedName)) {
+        $GPOs = (Get-GPInheritance -Target $OU.DistinguishedName).GpoLinks | Where-Object { $_.Enabled -eq $true }
+        foreach ($GPO in $GPOs) {
+            $result = New-Object psobject
+            $result | Add-Member -Type NoteProperty -Name "OU Name" -Value $OU.Name
+            $result | Add-Member -Type NoteProperty -Name "DistinguishedName" -Value $OU.DistinguishedName
+            $result | Add-Member -Type NoteProperty -Name "GPO DisplayName" -Value $GPO.DisplayName
+            $result | Add-Member -Type NoteProperty -Name "GPO ID" -Value $GPO.GPOID
+            $result | Add-Member -Type NoteProperty -Name "Target" -Value $GPO.Target
+            $result | Add-Member -Type NoteProperty -Name "Enabled" -Value $GPO.Enabled
+            $result | Add-Member -Type NoteProperty -Name "Enforced" -Value $GPO.Enforced
+            $result | Add-Member -Type NoteProperty -Name "Order" -Value $GPO.Order
+            $results += $result
+        }
+    }
+}
+
+# Export results to CSV
+$filepath = "GPO_Workstation_Report_" + (Get-Date -Format "dd-MM-yyyy_HH-mm-ss") + ".csv"
+$results | Export-Csv -Path $filepath -NoTypeInformation
+
+Write-Host "Report generated at $filepath"
